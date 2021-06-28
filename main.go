@@ -49,6 +49,9 @@ func (s *Storage) createUser(creds *User) error {
 }
 
 func (s *Storage) getAllUsers() ([]User, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	users := []User{}
 	_, err := os.Stat(s.filename)
 
