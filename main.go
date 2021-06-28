@@ -98,6 +98,19 @@ type JwtAuth struct {
 	ExpirationTime time.Duration
 }
 
+func NewAuth() JwtAuth {
+	var auth JwtAuth
+
+	secretKey := make([]byte, 20)
+	rand.Read(secretKey)
+	auth.SecretKey = string(secretKey)
+
+	auth.Issuer = "qgelena"
+	auth.ExpirationTime = time.Duration(600 * 1000 * 1000 * 1000)
+
+	return auth
+}
+
 var storage Storage
 
 type User struct {
@@ -195,12 +208,14 @@ func userLogin(w http.ResponseWriter, r *http.Request) {
 	w.Write(dat)
 }
 
+func btcRate(w http.ResponseWriter, r *http.Request) {
+
+}
+
 var address string = ":8081"
 
 func main() {
-	secretKey := make([]byte, 20)
-	rand.Read(secretKey)
-	storage.auth.SecretKey = string(secretKey)
+	storage.auth = NewAuth()
 
 	storage.filename = "users.json"
 	fmt.Printf("listening on %v\n", address)
@@ -208,7 +223,7 @@ func main() {
 	http.HandleFunc("/", homePage)
 	http.HandleFunc("/user/create", userCreate)
 	http.HandleFunc("/user/login", userLogin)
-	//http.HandleFunc("/btcRate", btcRate)
+	http.HandleFunc("/btcRate", btcRate)
 
 	http.ListenAndServe(address, nil)
 }
