@@ -106,7 +106,7 @@ func NewAuth() JwtAuth {
 	auth.SecretKey = string(secretKey)
 
 	auth.Issuer = "qgelena"
-	auth.ExpirationTime = time.Duration(600 * 1000 * 1000 * 1000)
+	auth.ExpirationTime = time.Second * time.Duration(600)
 
 	return auth
 }
@@ -131,7 +131,7 @@ func userCreate(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "JSON error: %v", err)
 		return
 	}
-	fmt.Printf("username=%q, password=%q\n", user.Username, user.Password)
+	fmt.Printf("/user/create: username=%q\n", user.Username)
 	// TODO: check empty password
 
 	err = storage.createUser(&user)
@@ -156,7 +156,7 @@ func userLogin(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "JSON error: %v", err)
 		return
 	}
-	fmt.Printf("username=%q, password=%q\n", reqUser.Username, reqUser.Password)
+	fmt.Printf("login: username=%q\n", reqUser.Username)
 
 	// check the user
 	dbUser, err := storage.findByName(reqUser.Username)
@@ -177,7 +177,7 @@ func userLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// create a new token
-	exptime := time.Now().Local().Add(time.Second * storage.auth.ExpirationTime).Unix()
+	exptime := time.Now().Local().Add(storage.auth.ExpirationTime).Unix()
 	claims := JwtClaim{
 		User: reqUser.Username,
 		StandardClaims: jwt.StandardClaims{
@@ -209,7 +209,74 @@ func userLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func btcRate(w http.ResponseWriter, r *http.Request) {
+	// read the request
+	type Request struct {
+		Token string `json:"token"`
+	}
 
+	var req Request
+	err := json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprintf(w, "cannot parse request: %v", err)
+		return
+	}
+
+	// validate token
+	token, err := jwt.ParseWithClaims(req.Token, &JwtClaim{},
+		func(token *jwt.Token) (interface{}, error) {
+			return []byte(storage.auth.SecretKey), nil
+		})
+	if err != nil {
+		w.WriteHeader(http.StatusUnauthorized)
+		fmt.Fprintf(w, "cannot read token: %v", err)
+		return
+	}
+
+	claims, ok := token.Claims.(*JwtClaim)
+	if !ok {
+		w.WriteHeader(http.StatusInternalServerError)
+		fmt.Fprintf(w, "cannot parse token claims")
+		return
+	}
+
+	if claims.ExpiresAt < time.Now().Local().Unix() {
+		w.WriteHeader(http.StatusUnauthorized)
+		fmt.Fprintf(w, "token is expried")
+		return
+	}
+
+	// get the bitcoin price
+	// TODO: cache this value for some time
+	resp, err := http.Get("https://api.coinbase.com/v2/prices/spot?currency=UAH")
+	if err != nil {
+		w.WriteHeader(http.StatusBadGateway)
+		fmt.Fprintf(w, "BTC price request failed: %v", err)
+		return
+	}
+
+	type Response struct {
+		Data struct {
+			Base     string `json:"base"`
+			Currency string `json:"currency"`
+			Amount   string `json:"amount"`
+		} `json:"data"`
+	}
+
+	response := Response{}
+	err = json.NewDecoder(resp.Body).Decode(&response)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		fmt.Fprintf(w, "BTC price response is invalid JSON: %v", err)
+		return
+	}
+
+	// respond
+	dat, err := json.Marshal(response)
+	if err != nil {
+		return
+	}
+	w.Write(dat)
 }
 
 var address string = ":8081"
